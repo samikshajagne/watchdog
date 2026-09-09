@@ -9,7 +9,8 @@ create table if not exists agencies (
   id uuid primary key references auth.users (id) on delete cascade,
   name text,
   owner_email text,
-  stripe_customer_id text,
+  razorpay_customer_id text,
+  razorpay_subscription_id text,
   plan_tier text not null default 'free' check (plan_tier in ('free', 'starter', 'agency', 'scale')),
   created_at timestamptz not null default now()
 );

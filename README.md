@@ -2,10 +2,17 @@
 
 Monitoring SaaS for web agencies and freelance developers who manage
 many client sites: uptime checks, SSL expiry alerts, weekly broken-link
-scans, one dashboard, and Stripe billing. Built with Next.js (App
-Router), Supabase (Postgres + Auth), Stripe, and Resend — all of which
-have free tiers, so you can run this for close to $0 until you have
-paying customers.
+scans, one dashboard, and Razorpay billing. Built with Next.js (App
+Router), Supabase (Postgres + Auth), Razorpay, and Resend — all of
+which have free/no-monthly-fee tiers, so you can run this for close to
+₹0 until you have paying customers.
+
+Billing runs on **Razorpay**, not Stripe — Stripe's India signup is
+currently invite-only ("Preview" status, sales-contact-only) for new
+businesses, so Razorpay (an Indian payment gateway built for exactly
+this — Indian companies, UPI + cards, no waitlist) is the practical
+choice here. See the note at the end of this README if that changes
+and you'd rather switch back.
 
 This README is the full path from "code on disk" to "live and able to
 charge people." Follow it in order — each account you create feeds an
@@ -15,9 +22,10 @@ env var the next step needs.
 
 - Node.js 20.9+ and npm (`node -v`)
 - A GitHub account (to deploy via Vercel)
-- Accounts you'll create below: Supabase, Stripe, Resend, Vercel — all
-  have free tiers and none require a credit card except Stripe (and
-  Stripe itself is free until you charge customers)
+- Accounts you'll create below: Supabase, Razorpay, Resend, Vercel —
+  all are free to create; Razorpay only takes a cut (currently ~2% +
+  GST per transaction, often discounted for new accounts) once you
+  actually charge someone, no subscription fee to use it.
 
 ## 2. Supabase (database + auth)
 
@@ -38,8 +46,14 @@ env var the next step needs.
    - `anon public` key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `service_role` key → `SUPABASE_SERVICE_ROLE_KEY` (keep this
      secret — it bypasses Row Level Security; it's only ever used
-     server-side in the cron job, the Stripe webhook, and the waitlist
-     route)
+     server-side in the cron job, the Razorpay webhook, and the
+     waitlist route)
+
+   **Already ran the old schema before this Stripe→Razorpay switch?**
+   Also run `supabase/migration_001_razorpay.sql` once — it renames the
+   old `stripe_customer_id` column and adds the new subscription-id
+   column. Skip it on a fresh project; the current `schema.sql`
+   already has the right columns.
 
 ## 3. Resend (email alerts)
 
@@ -51,24 +65,38 @@ env var the next step needs.
 4. Pick the address you want alerts to come from → `ALERT_FROM_EMAIL`
    (must be on the verified domain).
 
-## 4. Stripe (billing)
+## 4. Razorpay (billing)
 
-1. Create a Stripe account. Start in **Test mode** (toggle top-right)
-   — you can flip to live mode later without changing any code.
-2. **Product catalog → Add product**, create three products with a
-   **recurring monthly** price each:
-   - Starter — $9/month
-   - Agency — $25/month
-   - Scale — $60/month
-3. Copy each price's ID (`price_...`) into `STRIPE_PRICE_STARTER`,
-   `STRIPE_PRICE_AGENCY`, `STRIPE_PRICE_SCALE`.
-4. **Developers → API keys** → copy the secret key → `STRIPE_SECRET_KEY`.
-5. The webhook (step 4 needs a live URL, so come back to this after
-   you've deployed once in step 6): **Developers → Webhooks → Add
-   endpoint**, URL `https://yourdomain.com/api/stripe/webhook`, events
-   `checkout.session.completed`, `customer.subscription.updated`,
-   `customer.subscription.deleted`. Copy the **Signing secret** →
-   `STRIPE_WEBHOOK_SECRET`.
+1. Create a Razorpay account at razorpay.com and complete their
+   business KYC (needed before you can go live — you can build and
+   test everything below in **Test mode** first, no KYC required for
+   that).
+2. **Account & Settings → API Keys → Generate Test Key** → copy the
+   Key ID and Key Secret → `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET`.
+3. Create three subscription **Plans** — either in the Dashboard
+   (**Subscriptions → Plans → Create Plan**) or once via API/`curl`.
+   Amounts are in paise (smallest currency unit), period `monthly`,
+   interval `1`:
+   - Starter — item amount `69900` (₹699/month)
+   - Agency — item amount `199900` (₹1,999/month)
+   - Scale — item amount `499900` (₹4,999/month)
+
+   Copy each plan's ID (`plan_...`) into `RAZORPAY_PLAN_STARTER`,
+   `RAZORPAY_PLAN_AGENCY`, `RAZORPAY_PLAN_SCALE`. (Want different
+   prices? Change the amount here and in `lib/plans.ts`'s
+   `PLAN_PRICE_INR` so the dashboard display matches what you actually
+   charge.)
+4. The webhook (needs a live URL, so come back to this after you've
+   deployed once in step 6): **Account & Settings → Webhooks → Add New
+   Webhook**, URL `https://yourdomain.com/api/razorpay/webhook`,
+   select events `subscription.activated`, `subscription.charged`,
+   `subscription.cancelled`, `subscription.completed`,
+   `subscription.halted`. Set a secret there and copy the same value
+   into `RAZORPAY_WEBHOOK_SECRET`.
+5. There's no Stripe-style "sync test data to live mode" — when you
+   switch from Test keys to Live keys (after KYC is approved), you'll
+   need to recreate the three Plans under Live mode too and update the
+   `RAZORPAY_PLAN_*` env vars with the new live plan IDs.
 
 ## 5. Local development
 
@@ -76,8 +104,8 @@ env var the next step needs.
 npm install
 cp .env.example .env.local
 # fill in .env.local with the values from steps 2-4
-# (leave STRIPE_WEBHOOK_SECRET and the Stripe price IDs blank until
-#  you need to test billing locally — everything else works without them)
+# (leave RAZORPAY_WEBHOOK_SECRET blank until you deploy — webhooks need a
+#  public URL — everything else, including test-mode checkout, works without it)
 npm run dev
 ```
 
@@ -102,7 +130,7 @@ curl -H "Authorization: Bearer <your CRON_SECRET>" http://localhost:3000/api/cro
    variable from `.env.example` with your real values.
    `NEXT_PUBLIC_SITE_URL` should be your production URL (e.g.
    `https://website-watchdog.vercel.app` or your own domain).
-4. Deploy. Then go back to Supabase (step 2.4) and Stripe (step 4.5)
+4. Deploy. Then go back to Supabase (step 2.4) and Razorpay (step 4.4)
    and update the URLs to your real deployed domain.
 
 ## 7. Turn on the monitoring cron
@@ -136,13 +164,15 @@ this endpoint is hit, so it's safe to call it every few minutes.
 - [ ] Add a real site you control, wait for (or manually trigger) a
       cron run, confirm it shows a status.
 - [ ] On the Billing page, subscribe to a plan using a
-      [Stripe test card](https://docs.stripe.com/testing) (`4242 4242
-      4242 4242`, any future date/CVC) and confirm your plan tier
-      updates.
-- [ ] When ready to actually charge people, switch Stripe from Test to
-      Live mode, replace the three `STRIPE_PRICE_*` env vars with the
-      **live-mode** price IDs (Stripe test and live prices have
-      different IDs), and add a **live-mode** webhook endpoint/secret.
+      [Razorpay test card](https://razorpay.com/docs/payments/payments/test-card-upi-details/)
+      (`4111 1111 1111 1111`, any future date, any CVC — or a test UPI
+      VPA like `success@razorpay`) and confirm your plan tier updates
+      after the webhook fires.
+- [ ] Confirm the "Cancel subscription" button drops you back to Free.
+- [ ] When ready to actually charge people: complete Razorpay's KYC,
+      switch from Test to Live API keys, recreate the three Plans
+      under Live mode (they get new IDs — update the `RAZORPAY_PLAN_*`
+      env vars), and add a Live-mode webhook endpoint/secret.
 
 ## Known limitations (intentional, for a fast MVP)
 
@@ -162,12 +192,37 @@ this endpoint is hit, so it's safe to call it every few minutes.
 - **No team seats yet.** One login per agency account (the `agencies`
   table is 1:1 with `auth.users`). Multi-user access is a natural v2
   feature once you have paying customers asking for it.
+- **Razorpay subscriptions have a fixed number of billing cycles**,
+  not "bill forever" like Stripe. This app creates each subscription
+  with 120 monthly cycles (`SUBSCRIPTION_TOTAL_COUNT` in
+  `lib/razorpay.ts`) — effectively 10 years, a non-issue in practice.
+- **No self-serve billing portal.** Razorpay doesn't have a
+  Stripe-style hosted "manage your billing" page, so cancellation is a
+  plain button in this app's own dashboard (`app/api/razorpay/cancel`)
+  rather than a redirect to Razorpay. Fine for MVP; a "change plan"
+  flow (vs. just cancel) would be a natural v2 addition.
+- **Repeated payment failures ("halted" subscriptions) don't
+  auto-downgrade the customer** — see the comment in
+  `app/api/razorpay/webhook/route.ts`. Worth revisiting once you have
+  real subscribers to watch for silent failed renewals.
 
 ## Where to customize
 
-- **Pricing & site limits:** `lib/plans.ts`
+- **Pricing & site limits:** `lib/plans.ts` (also update the matching
+  Razorpay Plan amounts, and the copy in `app/page.tsx`'s `PLANS`
+  array, if you change prices)
 - **Accent color / fonts:** `tailwind.config.ts`, `app/globals.css`
 - **Landing page copy:** `app/page.tsx`
 - **Alert email copy:** `lib/email.ts`
 - **Alert thresholds/cadence:** `app/api/cron/check/route.ts`
   (`SSL_TIERS`, `SSL_RECHECK_HOURS`, `BROKEN_LINK_RECHECK_DAYS`)
+
+## If Stripe opens up in India later
+
+If Stripe's India waitlist clears and you'd rather use it, the
+billing integration is isolated to a handful of files: `lib/razorpay.ts`,
+`app/api/razorpay/*`, `components/BillingButtons.tsx`, the billing
+section of `app/dashboard/billing/page.tsx`, and the
+`razorpay_customer_id`/`razorpay_subscription_id` columns in
+`supabase/schema.sql`. Everything else (auth, dashboard, monitoring
+engine, email alerts) is untouched by which payment processor you use.

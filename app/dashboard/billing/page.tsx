@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
-import { PLAN_LABELS, PLAN_PRICE_USD, PLAN_SITE_LIMITS, type PlanTier } from "@/lib/plans";
-import { UpgradeButton, ManageBillingButton } from "@/components/BillingButtons";
+import { PLAN_LABELS, PLAN_PRICE_INR, PLAN_SITE_LIMITS, type PlanTier } from "@/lib/plans";
+import { UpgradeButton, CancelSubscriptionButton, RazorpayCheckoutScript } from "@/components/BillingButtons";
 
 const PAID_PLANS: Exclude<PlanTier, "free">[] = ["starter", "agency", "scale"];
 
@@ -12,13 +12,14 @@ export default async function BillingPage() {
 
   const { data: agency } = await supabase
     .from("agencies")
-    .select("plan_tier, stripe_customer_id")
+    .select("plan_tier, razorpay_subscription_id")
     .eq("id", user!.id)
     .single();
   const plan = (agency?.plan_tier ?? "free") as PlanTier;
 
   return (
     <div className="flex flex-col gap-8">
+      <RazorpayCheckoutScript />
       <div>
         <h1 className="font-display text-2xl font-bold">Billing</h1>
         <p className="text-sm text-[var(--text-muted)]">
@@ -26,9 +27,9 @@ export default async function BillingPage() {
         </p>
       </div>
 
-      {agency?.stripe_customer_id && (
+      {plan !== "free" && agency?.razorpay_subscription_id && (
         <div>
-          <ManageBillingButton />
+          <CancelSubscriptionButton />
         </div>
       )}
 
@@ -38,7 +39,7 @@ export default async function BillingPage() {
             <div>
               <p className="text-sm font-semibold text-[var(--text-muted)]">{PLAN_LABELS[p]}</p>
               <p className="font-display text-2xl font-bold">
-                ${PLAN_PRICE_USD[p]}
+                ₹{PLAN_PRICE_INR[p]}
                 <span className="text-sm font-normal text-[var(--text-muted)]">/month</span>
               </p>
               <p className="text-xs text-[var(--text-muted)]">Up to {PLAN_SITE_LIMITS[p]} sites</p>

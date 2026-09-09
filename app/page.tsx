@@ -51,16 +51,16 @@ const FEATURES = [
 ];
 
 const PLANS = [
-  { name: "Free", price: "$0", sites: "Up to 2 sites", features: ["Uptime & SSL checks", "Email alerts", "7-day history"] },
-  { name: "Starter", price: "$9", sites: "Up to 10 sites", features: ["Everything in Free", "Broken-link checks", "30-day history"] },
+  { name: "Free", price: "₹0", sites: "Up to 2 sites", features: ["Uptime & SSL checks", "Email alerts", "7-day history"] },
+  { name: "Starter", price: "₹699", sites: "Up to 10 sites", features: ["Everything in Free", "Broken-link checks", "30-day history"] },
   {
     name: "Agency",
-    price: "$25",
+    price: "₹1,999",
     sites: "Up to 50 sites",
     features: ["Everything in Starter", "Priority alerts", "Unlimited history"],
     highlighted: true,
   },
-  { name: "Scale", price: "$60", sites: "Up to 150 sites", features: ["Everything in Agency", "Priority email support", "Team access (soon)"] },
+  { name: "Scale", price: "₹4,999", sites: "Up to 150 sites", features: ["Everything in Agency", "Priority email support", "Team access (soon)"] },
 ];
 
 export default function LandingPage() {
@@ -198,7 +198,7 @@ export default function LandingPage() {
                 <span className="text-sm font-semibold text-[var(--text-muted)]">{plan.name}</span>
                 <div className="flex items-baseline gap-1">
                   <span className="font-display text-4xl font-bold">{plan.price}</span>
-                  {plan.price !== "$0" && <span className="text-sm text-[var(--text-muted)]">/month</span>}
+                  {plan.price !== "₹0" && <span className="text-sm text-[var(--text-muted)]">/month</span>}
                 </div>
                 <span className="text-[13px] text-[var(--text-muted)]">{plan.sites}</span>
               </div>

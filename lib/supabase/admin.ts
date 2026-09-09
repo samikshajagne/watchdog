@@ -3,7 +3,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 /**
  * Admin client using the service_role key. Bypasses Row Level Security.
  * ONLY use this in trusted server contexts: the cron/check route, the
- * Stripe webhook handler, and the waitlist API — never expose this
+ * Razorpay webhook handler, and the waitlist API — never expose this
  * client or its key to the browser.
  */
 export function createAdminClient() {
