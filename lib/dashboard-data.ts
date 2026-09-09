@@ -10,6 +10,8 @@ export type SiteWithStatus = {
   uptime30d: number | null;
   sslExpiresAt: string | null;
   openDowntimeIncident: boolean;
+  openSslIncident: boolean;
+  openBrokenLinkIncident: boolean;
 };
 
 /**
@@ -30,7 +32,7 @@ export async function getSitesWithStatus(): Promise<SiteWithStatus[]> {
   for (const site of sites) {
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    const [{ data: latestCheck }, { count: totalChecks }, { count: upChecks }, { data: ssl }, { data: incident }] =
+    const [{ data: latestCheck }, { count: totalChecks }, { count: upChecks }, { data: ssl }, { data: openIncidents }] =
       await Promise.all([
         supabase
           .from("checks")
@@ -51,14 +53,13 @@ export async function getSitesWithStatus(): Promise<SiteWithStatus[]> {
           .eq("status", "up")
           .gte("checked_at", since),
         supabase.from("ssl_status").select("expires_at").eq("site_id", site.id).maybeSingle(),
-        supabase
-          .from("incidents")
-          .select("id")
-          .eq("site_id", site.id)
-          .eq("type", "downtime")
-          .is("resolved_at", null)
-          .maybeSingle(),
+        // All open incidents, any type — the dashboard's headline status
+        // needs to reflect SSL and broken-link problems too, not just
+        // downtime, otherwise a site with real issues still shows "Operational".
+        supabase.from("incidents").select("type").eq("site_id", site.id).is("resolved_at", null),
       ]);
+
+    const openTypes = new Set((openIncidents ?? []).map((i) => i.type as string));
 
     results.push({
       id: site.id,
@@ -70,7 +71,9 @@ export async function getSitesWithStatus(): Promise<SiteWithStatus[]> {
       uptime30d:
         totalChecks && totalChecks > 0 ? Math.round(((upChecks ?? 0) / totalChecks) * 10000) / 100 : null,
       sslExpiresAt: ssl?.expires_at ?? null,
-      openDowntimeIncident: Boolean(incident),
+      openDowntimeIncident: openTypes.has("downtime"),
+      openSslIncident: openTypes.has("ssl"),
+      openBrokenLinkIncident: openTypes.has("broken_link"),
     });
   }
 

@@ -47,7 +47,12 @@ export default async function SiteDetailPage({
         <div className="rounded-lg border border-[var(--border)] bg-white p-4">
           <p className="text-xs font-semibold uppercase text-[var(--text-muted)]">Current status</p>
           <div className="mt-2">
-            <StatusBadge status={(checks?.[0]?.status as "up" | "down" | undefined) ?? null} />
+            <StatusBadge
+              status={(checks?.[0]?.status as "up" | "down" | undefined) ?? null}
+              hasOpenIssue={Boolean(
+                incidents?.some((i) => !i.resolved_at && (i.type === "ssl" || i.type === "broken_link"))
+              )}
+            />
           </div>
         </div>
         <div className="rounded-lg border border-[var(--border)] bg-white p-4">

@@ -51,7 +51,10 @@ export default function SitesTable({ sites }: { sites: SiteWithStatus[] }) {
             <span className="font-medium">{site.label || site.url}</span>
             {site.label && <span className="text-xs text-[var(--text-muted)]">{site.url}</span>}
           </Link>
-          <StatusBadge status={site.latestStatus} />
+          <StatusBadge
+            status={site.latestStatus}
+            hasOpenIssue={site.openSslIncident || site.openBrokenLinkIncident}
+          />
           <span className="text-[var(--text-muted)]">
             {site.uptime30d !== null ? `${site.uptime30d}%` : "—"}
           </span>

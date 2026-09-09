@@ -37,7 +37,14 @@ export async function GET(request: Request) {
   const results: Record<string, unknown>[] = [];
 
   for (const site of sites ?? []) {
-    const ownerEmail = (site as any).agencies?.owner_email as string | undefined;
+    // supabase-js can return a to-one embedded relation as either an object
+    // or a single-element array depending on how PostgREST infers the
+    // relationship — handle both so ownerEmail doesn't silently end up
+    // undefined (which was skipping every alert email with no error at all).
+    const agencyRel = (site as any).agencies;
+    const ownerEmail = (Array.isArray(agencyRel) ? agencyRel[0]?.owner_email : agencyRel?.owner_email) as
+      | string
+      | undefined;
     const siteResult: Record<string, unknown> = { site_id: site.id, url: site.url };
 
     // --- 1. Uptime check (every invocation) ---
@@ -165,6 +172,11 @@ export async function GET(request: Request) {
 
       if (dueForCrawl) {
         const broken = await crawlBrokenLinks(site.url);
+
+        // Replace last crawl's findings rather than appending — otherwise
+        // every weekly crawl piles more rows on top of old ones forever,
+        // and a link that gets fixed never disappears from the list.
+        await supabase.from("broken_links").delete().eq("site_id", site.id);
         if (broken.length > 0) {
           await supabase.from("broken_links").insert(
             broken.map((b) => ({
@@ -174,10 +186,47 @@ export async function GET(request: Request) {
               status_code: b.statusCode,
             }))
           );
+        }
+
+        // Mirror the downtime/SSL pattern: track an open incident so the
+        // dashboard can reflect "still broken" without re-alerting on every
+        // single crawl, and so it can clear once links get fixed.
+        const { data: openBrokenLinkIncident } = await supabase
+          .from("incidents")
+          .select("id, meta")
+          .eq("site_id", site.id)
+          .eq("type", "broken_link")
+          .is("resolved_at", null)
+          .maybeSingle();
+
+        if (broken.length === 0) {
+          if (openBrokenLinkIncident) {
+            await supabase
+              .from("incidents")
+              .update({ resolved_at: new Date().toISOString() })
+              .eq("id", openBrokenLinkIncident.id);
+          }
+        } else if (!openBrokenLinkIncident) {
+          const { data: incident } = await supabase
+            .from("incidents")
+            .insert({ site_id: site.id, type: "broken_link", meta: { count: broken.length } })
+            .select("id")
+            .single();
+          if (ownerEmail && incident) {
+            await sendBrokenLinksAlert(ownerEmail, site.url, broken.length);
+            await supabase.from("alerts_sent").insert({ incident_id: incident.id });
+          }
+        } else if ((openBrokenLinkIncident.meta as any)?.count !== broken.length) {
+          await supabase
+            .from("incidents")
+            .update({ meta: { count: broken.length } })
+            .eq("id", openBrokenLinkIncident.id);
           if (ownerEmail) {
             await sendBrokenLinksAlert(ownerEmail, site.url, broken.length);
+            await supabase.from("alerts_sent").insert({ incident_id: openBrokenLinkIncident.id });
           }
         }
+
         siteResult.brokenLinks = broken.length;
       }
     } catch (e) {
